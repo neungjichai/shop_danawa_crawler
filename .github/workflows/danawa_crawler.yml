@@ -1,0 +1,30 @@
+name: Danawa Crawler
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # UTC 0시 = 한국시간(KST) 오전 9시
+  workflow_dispatch:        # 수동 실행 버튼도 사용 가능
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run crawler
+        run: python danawa_crawler.py
+
+      - name: Commit and push data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add crawl_data/*.csv
+          git diff --cached --quiet && echo "변경사항 없음" || git commit -m "Update crawl data $(date -u +'%Y-%m-%d')"
+          git push
