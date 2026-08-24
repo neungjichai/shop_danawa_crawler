@@ -92,11 +92,13 @@ def parse_mboard(name: str, spec: str) -> dict:
     form_factor = _search(r"/(ATX|M-ATX|M-ITX|E-ATX)\s*\(", spec)
     # "8200MHz (PC5-65600)/4개/메모리 용량" 패턴에서 슬롯 개수 추출
     ram_slot_count = _to_int(_search(r"MHz\s*\(PC\d-\d+\)/(\d+)개", spec))
+    sata_ports = _to_int(_search(r"SATA3:(\d+)개", spec))
     return {
         "socket": socket,
         "ram_type": ram_type,
         "form_factor": form_factor,
         "ram_slot_count": ram_slot_count,
+        "sata_ports": sata_ports,
     }
 
 
@@ -105,7 +107,9 @@ def parse_ram(name: str, spec: str) -> dict:
     ram_type = _search(r"(DDR\d)", spec)
     speed_mhz = _to_int(_search(r"(\d+)MHz", spec))
     capacity_gb = parse_capacity_gb_from_name(name)
-    return {"ram_type": ram_type, "speed_mhz": speed_mhz, "capacity_gb": capacity_gb}
+    # 방열판 높이 (기획서 "10번 조건: 쿨러↔RAM 간섭" 판단에 필요). 방열판 없는 RAM은 이 필드 자체가 없어 NULL이 정상.
+    height_mm = _to_int(_search(r"높이:(\d+(?:\.\d+)?)mm", spec))
+    return {"ram_type": ram_type, "speed_mhz": speed_mhz, "capacity_gb": capacity_gb, "height_mm": height_mm}
 
 
 # ---------------- SSD ----------------
@@ -117,7 +121,12 @@ def parse_ssd(name: str, spec: str) -> dict:
         interface = "SATA" if "M.2" not in spec else "M.2 SATA"
     else:
         interface = None
-    return {"capacity_gb": capacity_gb, "interface": interface}
+
+    # PCIe 버전: "PCIe4.0x4", "PCIe5.0x4" 형태. 여러 버전이 같이 표기되면(듀얼모드) 더 높은 버전을 채택.
+    pcie_versions = re.findall(r"PCIe(\d(?:\.\d)?)x\d", spec)
+    pcie_version = max(pcie_versions, key=float) if pcie_versions else None
+
+    return {"capacity_gb": capacity_gb, "interface": interface, "pcie_version": pcie_version}
 
 
 # ---------------- HDD ----------------
@@ -161,7 +170,22 @@ def parse_power(name: str, spec: str) -> dict:
     form_factor = _search(r"^[\w-]+\((\w+(?:-L)?)\)\s*파워", spec)
     if not form_factor:
         form_factor = _search(r"^(ATX|SFX|SFX-L|TFX)\s*파워", spec)
-    return {"rated_w": rated_w, "form_factor": form_factor}
+
+    # 인증등급: "80 PLUS" 표기가 있으면 그걸 우선, 없으면 "ETA인증" 표기를 대신 사용.
+    # 둘 다 없으면 인증 자체가 없는(저가형) 제품일 수 있음 -> NULL
+    certification = _search(r"80 PLUS ([^/]+)", spec)
+    if not certification:
+        eta = _search(r"ETA인증:([^/]+)", spec)
+        certification = f"ETA-{eta}" if eta else None
+
+    length_mm = _to_int(_search(r"깊이:(\d+)mm", spec))  # ★ 추가: PSU 자체 길이 (기획서 "PSU 길이" 조건)
+
+    return {
+        "rated_w": rated_w,
+        "form_factor": form_factor,
+        "certification": certification,
+        "length_mm": length_mm,
+    }
 
 
 # ---------------- 케이스 ----------------
@@ -170,13 +194,13 @@ def parse_case(name: str, spec: str) -> dict:
     max_cooler_height_mm = _to_int(_search(r"CPU쿨러 높이:(\d+(?:\.\d+)?)mm", spec))
     max_vga_length_mm = _to_int(_search(r"VGA 길이:(\d+(?:\.\d+)?)mm", spec))
     support_psu_form_factors = _search(r"지원파워규격:([^/]+)", spec)
-    support_radiator_mm = _search(r"라디에이터\D{0,10}((?:\d+(?:,\s*)?)+)mm", spec)
+    max_psu_length_mm = _to_int(_search(r"파워 장착 길이:(\d+(?:\.\d+)?)mm", spec))  # ★ 추가: 기획서 "PSU 길이" 조건
     return {
         "support_form_factors": support_form_factors,
         "max_cooler_height_mm": max_cooler_height_mm,
         "max_vga_length_mm": max_vga_length_mm,
         "support_psu_form_factors": support_psu_form_factors,
-        "support_radiator_mm": support_radiator_mm,
+        "max_psu_length_mm": max_psu_length_mm,
     }
 
 

@@ -28,7 +28,8 @@ CREATE TABLE cpu_products (
     has_igpu     VARCHAR(10)  NULL,
     power_min_w  SMALLINT UNSIGNED NULL,
     power_max_w  SMALLINT UNSIGNED NULL,
-    socket       VARCHAR(30)  NULL          -- add_compat_columns.sql
+    socket       VARCHAR(30)  NULL,         -- add_compat_columns.sql
+    tier_rank    SMALLINT     NULL          -- ★ 성능 등급 점수 (db/tier_rank.py cpu_rank_score, 라인업/세대/K접미사 기반 연속 점수. 기획서 6장 원칙 반영)
 );
 
 DROP TABLE IF EXISTS cpu_prices;
@@ -50,7 +51,8 @@ CREATE TABLE vga_products (
     usage_type        VARCHAR(20),
     length_mm         SMALLINT UNSIGNED NULL,   -- add_compat_columns.sql
     recommended_psu_w SMALLINT UNSIGNED NULL,   -- add_compat_columns.sql
-    power_connector   VARCHAR(50) NULL          -- add_compat_columns.sql
+    power_connector   VARCHAR(50) NULL,         -- add_compat_columns.sql
+    tier_rank         SMALLINT    NULL          -- ★ 성능 등급 점수 (db/tier_rank.py gpu_rank_score, 체급/세대/Ti·SUPER접미사 기반 연속 점수. 기획서 6장 원칙 반영)
 );
 
 DROP TABLE IF EXISTS vga_prices;
@@ -73,7 +75,8 @@ CREATE TABLE mboard_products (
     ram_slot_count  TINYINT UNSIGNED NULL,
     socket          VARCHAR(30) NULL,           -- add_compat_columns.sql
     form_factor     VARCHAR(20) NULL,           -- add_compat_columns.sql
-    ram_type        VARCHAR(10) NULL            -- add_compat_columns.sql
+    ram_type        VARCHAR(10) NULL,           -- add_compat_columns.sql
+    sata_ports      TINYINT UNSIGNED NULL       -- ★ 추가: SATA 커넥터 개수
 );
 
 DROP TABLE IF EXISTS mboard_prices;
@@ -95,7 +98,8 @@ CREATE TABLE ram_products (
     usage_type   VARCHAR(20),
     ram_type     VARCHAR(10) NULL,              -- add_compat_columns.sql
     capacity_gb  SMALLINT UNSIGNED NULL,         -- ★ 저장소에 없어서 추가(용량 검색에 필수)
-    speed_mhz    SMALLINT UNSIGNED NULL          -- ★ 저장소에 없어서 추가
+    speed_mhz    SMALLINT UNSIGNED NULL,         -- ★ 저장소에 없어서 추가
+    height_mm    TINYINT UNSIGNED NULL           -- ★ 추가: 방열판 높이 (기획서 10번 조건 "쿨러↔RAM 간섭" 판단용, 방열판 없으면 NULL)
 );
 
 DROP TABLE IF EXISTS ram_prices;
@@ -116,7 +120,8 @@ CREATE TABLE ssd_products (
     company      VARCHAR(50),
     usage_type   VARCHAR(20),
     capacity_gb  SMALLINT UNSIGNED NULL,         -- ★ 저장소에 없어서 추가
-    interface    VARCHAR(30) NULL                -- ★ 저장소에 없어서 추가
+    interface    VARCHAR(30) NULL,               -- ★ 저장소에 없어서 추가
+    pcie_version VARCHAR(10) NULL                -- ★ 추가: M.2 PCIe 버전 (예: "4.0", "5.0")
 );
 
 DROP TABLE IF EXISTS ssd_prices;
@@ -181,7 +186,9 @@ CREATE TABLE power_products (
     company      VARCHAR(50),
     usage_type   VARCHAR(20),
     rated_w      SMALLINT UNSIGNED NULL,         -- add_compat_columns.sql
-    form_factor  VARCHAR(20) NULL                -- add_compat_columns.sql
+    form_factor  VARCHAR(20) NULL,               -- add_compat_columns.sql
+    certification VARCHAR(20) NULL,              -- ★ 추가: 80 PLUS/ETA 인증등급
+    length_mm    SMALLINT UNSIGNED NULL          -- ★ 추가: PSU 자체 길이(깊이) - 기획서 "PSU 길이" 조건
 );
 
 DROP TABLE IF EXISTS power_prices;
@@ -205,7 +212,14 @@ CREATE TABLE case_products (
     max_cooler_height_mm     SMALLINT UNSIGNED NULL,  -- add_compat_columns.sql
     max_vga_length_mm        SMALLINT UNSIGNED NULL,  -- add_compat_columns.sql
     support_psu_form_factors VARCHAR(50) NULL,   -- add_compat_columns.sql
-    support_radiator_mm      VARCHAR(50) NULL    -- ★ 저장소에 없어서 추가(수랭 매칭에 필수)
+    max_psu_length_mm        SMALLINT UNSIGNED NULL,  -- ★ 추가: 케이스가 허용하는 최대 파워 길이 (기획서 "PSU 길이" 조건, 목록페이지 스펙에 있음)
+    -- ★ 아래 4개는 목록 페이지가 아니라 "상세페이지" 스펙에서만 얻을 수 있어
+    --   db/detail_spec_crawler.py + db/detail_spec_parser.py로 별도 수집한다.
+    radiator_top_mm       SMALLINT UNSIGNED NULL,   -- 상단 라디에이터 최대 지원 크기(mm)
+    radiator_front_mm     SMALLINT UNSIGNED NULL,   -- 전면 라디에이터 최대 지원 크기(mm)
+    radiator_rear_mm      SMALLINT UNSIGNED NULL,   -- 후면 라디에이터 최대 지원 크기(mm)
+    radiator_bottom_mm    SMALLINT UNSIGNED NULL,   -- 하단 라디에이터 최대 지원 크기(mm)
+    liquid_cooler_slots   TINYINT UNSIGNED NULL     -- 수랭쿨러 지원 열 수 (예: "최대3열 지원" -> 3)
 );
 
 DROP TABLE IF EXISTS case_prices;

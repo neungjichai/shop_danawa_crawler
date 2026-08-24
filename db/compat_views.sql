@@ -208,3 +208,72 @@ CREATE VIEW v_compat_power_vga_safe AS
 SELECT *
 FROM v_compat_power_vga
 WHERE rated_w >= recommended_psu_w * 1.1;
+
+-- ------------------------------------------------------------
+-- 9) 케이스 - 수랭쿨러 : 라디에이터 크기 매칭 (상세페이지 스펙 기반)
+--    db/detail_spec_crawler.py로 수집한 case_products의 radiator_*_mm 컬럼 사용.
+--    쿨러 쪽은 cooler_products.radiator_mm(목록 페이지 스펙에서 파싱, 수랭 쿨러만 존재)과 비교.
+--    케이스가 상단/전면/후면/하단 중 어느 위치든 그 라디에이터 크기 이상을 지원하면 호환으로 본다.
+-- ------------------------------------------------------------
+DROP VIEW IF EXISTS v_compat_case_radiator;
+CREATE VIEW v_compat_case_radiator AS
+SELECT
+    ca.product_id AS case_id,
+    ca.name       AS case_name,
+    ca.radiator_top_mm, ca.radiator_front_mm, ca.radiator_rear_mm, ca.radiator_bottom_mm,
+    co.product_id AS cooler_id,
+    co.name       AS cooler_name,
+    co.radiator_mm AS cooler_radiator_mm,
+    co.price_krw  AS cooler_price
+FROM case_products_v ca
+JOIN cooler_products_v co
+  ON co.cooler_type = 'liquid'
+ AND co.radiator_mm IS NOT NULL
+ AND (
+        co.radiator_mm <= COALESCE(ca.radiator_top_mm, 0)
+     OR co.radiator_mm <= COALESCE(ca.radiator_front_mm, 0)
+     OR co.radiator_mm <= COALESCE(ca.radiator_rear_mm, 0)
+     OR co.radiator_mm <= COALESCE(ca.radiator_bottom_mm, 0)
+     );
+
+-- ------------------------------------------------------------
+-- 10) 케이스 - 파워 : PSU 길이 매칭 (기획서 "PSU 길이" 조건, 8개 결정론적 조건 중 하나)
+-- ------------------------------------------------------------
+DROP VIEW IF EXISTS v_compat_case_power_length;
+CREATE VIEW v_compat_case_power_length AS
+SELECT
+    ca.product_id AS case_id,
+    ca.name       AS case_name,
+    ca.max_psu_length_mm,
+    p.product_id  AS power_id,
+    p.name        AS power_name,
+    p.length_mm   AS power_length_mm,
+    p.price_krw   AS power_price
+FROM case_products_v ca
+JOIN power_products_v p
+  ON p.length_mm IS NOT NULL
+ AND ca.max_psu_length_mm IS NOT NULL
+ AND p.length_mm <= ca.max_psu_length_mm;
+
+-- ------------------------------------------------------------
+-- 11) 쿨러 - RAM : 방열판 간섭 참고용 (기획서 10번 조건)
+--    "구조화된 치수 데이터로 확보되지 않는 항목"이라 기획서가 최종 필터링이 아닌
+--    "참고 경고 문구"로만 쓰라고 명시했다 -- 그래서 이 뷰는 강제로 걸러내지 않고,
+--    쿨러 높이와 RAM 방열판 높이를 나란히 보여주기만 한다. 실제 "간섭 여부"
+--    판단(예: 공랭 쿨러 폭까지 고려한 물리적 간섭)은 Gemini 등 AI 모델의 보조
+--    판단 몫으로 남겨둔다.
+-- ------------------------------------------------------------
+DROP VIEW IF EXISTS v_ram_cooler_clearance_reference;
+CREATE VIEW v_ram_cooler_clearance_reference AS
+SELECT
+    co.product_id AS cooler_id,
+    co.name       AS cooler_name,
+    co.cooler_type,
+    co.height_mm  AS cooler_height_mm,
+    r.product_id  AS ram_id,
+    r.name        AS ram_name,
+    r.height_mm   AS ram_height_mm
+FROM cooler_products_v co
+JOIN ram_products_v r
+  ON co.cooler_type = 'air'  -- 수랭은 라디에이터가 케이스에 붙으므로 RAM 간섭 이슈 없음
+ AND r.height_mm IS NOT NULL;  -- 방열판 없는(height_mm NULL) RAM은 애초에 간섭 우려 없음

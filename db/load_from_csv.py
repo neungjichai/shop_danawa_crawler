@@ -25,6 +25,9 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from spec_parser import PARSERS  # noqa: E402
+from tier_rank import cpu_tier, gpu_tier  # noqa: E402
+from detail_spec_parser import parse_case_radiator_info  # noqa: E402
+import json  # noqa: E402
 
 CRAWL_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "crawl_data")
 
@@ -78,8 +81,35 @@ def _usage_type(category_name: str, name: str, spec: str) -> str:
     return "consumer"
 
 
+def _load_detail_spec_cache() -> dict:
+    """
+    db/detail_spec_crawler.py가 만든 crawl_data/detail_spec_cache.csv를 읽어서
+    (category, product_id) -> 전체 스펙 dict 형태로 돌려준다.
+    파일이 없으면(아직 상세 크롤러를 안 돌린 경우) 빈 dict를 반환 -> 라디에이터 컬럼은 NULL로 남는다.
+    """
+    cache = {}
+    cache_path = os.path.join(CRAWL_DATA_DIR, "detail_spec_cache.csv")
+    if not os.path.isfile(cache_path):
+        return cache
+    with open(cache_path, encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            try:
+                spec = json.loads(row["spec_json"])
+            except (json.JSONDecodeError, KeyError):
+                continue
+            cache[(row["category"], int(row["product_id"]))] = spec
+    return cache
+
+
+DETAIL_SPEC_CACHE = None  # 최초 사용 시 한 번만 로드 (지연 초기화)
+
+
 def build_insert_statements(conn) -> None:
     """conn: mysql.connector connection. 카테고리별로 products/prices/product_media를 채운다."""
+    global DETAIL_SPEC_CACHE
+    if DETAIL_SPEC_CACHE is None:
+        DETAIL_SPEC_CACHE = _load_detail_spec_cache()
+
     cursor = conn.cursor()
     crawl_dt = datetime.now(KST)
 
@@ -102,6 +132,14 @@ def build_insert_statements(conn) -> None:
             seen_ids.add(product_id)
 
             parsed = parser(r["name"], r["spec"]) if parser else {}
+            if category_name == "CPU":
+                parsed["tier_rank"] = cpu_tier(r["name"])
+            elif category_name == "그래픽카드":
+                parsed["tier_rank"] = gpu_tier(r["name"])
+            elif category_name == "케이스":
+                detail = DETAIL_SPEC_CACHE.get(("케이스", product_id))
+                if detail:
+                    parsed.update(parse_case_radiator_info(detail))
             usage_type = _usage_type(category_name, r["name"], r["spec"])
             company = r.get("maker", "")
 
@@ -120,16 +158,17 @@ def build_insert_statements(conn) -> None:
 
 # 카테고리별 products 테이블의 호환성 컬럼 순서 (schema.sql과 반드시 일치)
 COMPAT_COLUMNS = {
-    "cpu": ["socket", "has_igpu", "power_min_w", "power_max_w"],
-    "vga": ["length_mm", "recommended_psu_w", "power_connector"],
-    "mboard": ["ram_slot_count", "socket", "form_factor", "ram_type"],
-    "ram": ["ram_type", "capacity_gb", "speed_mhz"],
-    "ssd": ["capacity_gb", "interface"],
+    "cpu": ["socket", "has_igpu", "power_min_w", "power_max_w", "tier_rank"],
+    "vga": ["length_mm", "recommended_psu_w", "power_connector", "tier_rank"],
+    "mboard": ["ram_slot_count", "socket", "form_factor", "ram_type", "sata_ports"],
+    "ram": ["ram_type", "capacity_gb", "speed_mhz", "height_mm"],
+    "ssd": ["capacity_gb", "interface", "pcie_version"],
     "hdd": ["capacity_gb"],
     "cooler": ["support_sockets", "height_mm", "cooler_type", "radiator_mm", "max_tdp_w"],
-    "power": ["rated_w", "form_factor"],
+    "power": ["rated_w", "form_factor", "certification", "length_mm"],
     "case": ["support_form_factors", "max_cooler_height_mm", "max_vga_length_mm",
-              "support_psu_form_factors", "support_radiator_mm"],
+              "support_psu_form_factors", "max_psu_length_mm", "radiator_top_mm", "radiator_front_mm",
+              "radiator_rear_mm", "radiator_bottom_mm", "liquid_cooler_slots"],
 }
 
 
