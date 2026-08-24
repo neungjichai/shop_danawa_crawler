@@ -17,7 +17,7 @@ from exclude_rules import classify_product
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crawl_data")
 
 
-def clean_file(filepath: str) -> None:
+def clean_file(filepath: str, category_name: str) -> None:
     with open(filepath, encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
@@ -33,7 +33,9 @@ def clean_file(filepath: str) -> None:
     excluded_count = 0
     for row in rows:
         price = int(row.get("price", 0) or 0)
-        is_excluded, reason = classify_product(row.get("name", ""), price, spec=row.get("spec", ""))
+        is_excluded, reason = classify_product(
+            row.get("name", ""), price, spec=row.get("spec", ""), category=category_name
+        )
         row["is_excluded"] = is_excluded
         row["exclude_reason"] = reason
         if is_excluded:
@@ -63,7 +65,7 @@ def main():
 
         filepath = os.path.join(OUTPUT_DIR, filename)
         print(f"[정제] {filename}")
-        clean_file(filepath)
+        clean_file(filepath, category_name)
 
 
 if __name__ == "__main__":

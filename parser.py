@@ -48,7 +48,8 @@ def parse_product_list(html: str, category_name: str) -> list[dict]:
             img_tag = tr.select_one("div.goods_img_box img")
 
             is_excluded, exclude_reason = classify_product(
-                name, price, spec=spec_tag.get_text(strip=True) if spec_tag else ""
+                name, price, spec=spec_tag.get_text(strip=True) if spec_tag else "",
+                category=category_name,
             )
 
             products.append({
