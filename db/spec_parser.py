@@ -157,7 +157,10 @@ def parse_cooler(name: str, spec: str) -> dict:
 # ---------------- 파워(PSU) ----------------
 def parse_power(name: str, spec: str) -> dict:
     rated_w = _to_int(_search(r"/(\d+)W/", spec))
-    form_factor = _search(r"^(ATX|SFX|SFX-L|TFX)\s*파워", spec)
+    # "M-ATX(SFX) 파워"처럼 실제 규격이 괄호 안에 따로 표기되는 경우를 우선 확인
+    form_factor = _search(r"^[\w-]+\((\w+(?:-L)?)\)\s*파워", spec)
+    if not form_factor:
+        form_factor = _search(r"^(ATX|SFX|SFX-L|TFX)\s*파워", spec)
     return {"rated_w": rated_w, "form_factor": form_factor}
 
 
