@@ -52,23 +52,33 @@ def parse_cpu(name: str, spec: str) -> dict:
     socket = _search(r"소켓(\w+)", spec)
 
     # 내장그래픽 유무: UHD/HD/Xe 그래픽스 등 실제 모델명이 보이면 Y, "미탑재"만 있으면 N
-    if re.search(r"UHD\s*\d|HD\s*[A-Z0-9]|인텔 HD(?!\w)|Xe\s*그래픽스|인텔 그래픽스|아이리스|Iris", spec):
+    # (AMD는 모델명 없이 "탑재"/"미탑재"만 표기하는 경우가 있어 별도로 처리)
+    if re.search(r"UHD\s*\d|HD\s*[A-Z0-9]|인텔 HD(?!\w)|Xe\s*그래픽스|인텔 그래픽스|아이리스|Iris|Radeon", spec):
         has_igpu = "Y"
     elif "미탑재" in spec:
         has_igpu = "N"
+    elif re.search(r"(?<!미)탑재", spec):  # "미탑재"가 아닌 "탑재"만 단독으로 있는 경우 (AMD 표기 방식)
+        has_igpu = "Y"
     else:
         has_igpu = None
 
-    # 전력: 최신 세대는 "PBP-MTP:125-250W", 구세대는 "TDP:65~117W" 또는 "TDP:65W"
+    # 전력: 최신 인텔은 "PBP-MTP:125-250W", 구세대 인텔은 "TDP:65~117W"/"TDP:65W",
+    # AMD는 "TDP:65W/PPT:88W" 형태로 TDP(기본)와 PPT(실제 최대 소비전력)를 따로 표기한다
+    # (PPT가 인텔의 MTP/최대값에 해당하는 개념이라 min=TDP, max=PPT로 매핑).
+    # 단위(W)가 생략된 경우도 있어(예: "TDP: 65 / PPT: 88") W를 선택적으로 처리한다.
     pmin = pmax = None
     m = re.search(r"PBP-MTP:(\d+)-(\d+)W", spec)
     if m:
         pmin, pmax = int(m.group(1)), int(m.group(2))
     else:
-        m = re.search(r"TDP:(\d+)(?:~(\d+))?W", spec)
+        m = re.search(r"TDP:\s*(\d+)W?.*?PPT:\s*(\d+)W?", spec)  # AMD
         if m:
-            pmin = int(m.group(1))
-            pmax = int(m.group(2)) if m.group(2) else pmin
+            pmin, pmax = int(m.group(1)), int(m.group(2))
+        else:
+            m = re.search(r"TDP:\s*(\d+)(?:~(\d+))?W?", spec)  # 구세대 인텔
+            if m:
+                pmin = int(m.group(1))
+                pmax = int(m.group(2)) if m.group(2) else pmin
 
     return {"socket": socket, "has_igpu": has_igpu, "power_min_w": pmin, "power_max_w": pmax}
 

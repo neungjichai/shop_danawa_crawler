@@ -132,67 +132,58 @@ def crawl_category(session: requests.Session, category_name: str, category_info:
         return
 
     category_depth = category_info.get("categoryDepth", 2)
-    filter_type = category_info.get("filter_type", "maker")
     max_page = category_info.get("max_page", MAX_PAGE)  # 카테고리별 override, 없으면 전역 기본값
+    sub_requests = category_info.get("requests", [])
 
-    maker_codes = None
-    attributes = None
-
-    if filter_type == "maker":
-        maker_codes_map = category_info.get("makerCodes", {})
-        valid = {name: code for name, code in maker_codes_map.items() if code is not None}
-        if not valid:
-            print(f"[건너뜀] {category_name}: makerCode 미설정 (config.py 확인 필요)")
-            return
-        maker_codes = list(valid.values())
-        maker_label = ",".join(valid.keys())
-
-    elif filter_type == "attribute":
-        attr_map = category_info.get("attributes", {})
-        valid = {name: value for name, value in attr_map.items() if value}
-        if not valid:
-            print(f"[건너뜀] {category_name}: attribute 미설정 (config.py 확인 필요)")
-            return
-        attributes = list(valid.values())
-        maker_label = ",".join(valid.keys())
-
-    else:
-        print(f"[건너뜀] {category_name}: 알 수 없는 filter_type={filter_type}")
+    if not sub_requests:
+        print(f"[건너뜀] {category_name}: requests 미설정 (config.py 확인 필요)")
         return
 
     crawl_date = datetime.now(KST).strftime("%Y-%m-%d")
 
     all_rows = []
-    seen_codes = set()
+    seen_codes = set()  # 카테고리 전체에서 중복 상품코드 방지 (여러 요청에 걸쳐 겹칠 수 있음)
 
-    for page in range(1, max_page + 1):
-        print(f"  - {category_name} ({maker_label}) {page}페이지 요청 중...")
-        try:
-            html = fetch_page(session, category_seq, category_depth, page,
-                               maker_codes=maker_codes, attributes=attributes)
-        except requests.RequestException as e:
-            print(f"    ! 요청 실패: {e}")
-            break
+    for req in sub_requests:
+        label = req.get("label", "")
+        maker_codes_map = req.get("makerCodes", {})
+        attr_map = req.get("attributes", {})
 
-        products = parse_product_list(html, category_name)
+        maker_codes = [code for code in maker_codes_map.values() if code is not None] or None
+        attributes = [value for value in attr_map.values() if value] or None
 
-        if not products:
-            print(f"    - {page}페이지에 상품 없음. 카테고리 크롤링 종료.")
-            break
+        if not maker_codes and not attributes:
+            print(f"  [건너뜀] {category_name} - {label}: makerCode/attribute 둘 다 미설정")
+            continue
 
-        new_count = 0
-        for p in products:
-            if p["code"] in seen_codes:
-                continue
-            seen_codes.add(p["code"])
-            p["crawl_date"] = crawl_date
-            p["maker"] = maker_label
-            all_rows.append(p)
-            new_count += 1
+        for page in range(1, max_page + 1):
+            print(f"  - {category_name} ({label}) {page}페이지 요청 중...")
+            try:
+                html = fetch_page(session, category_seq, category_depth, page,
+                                   maker_codes=maker_codes, attributes=attributes)
+            except requests.RequestException as e:
+                print(f"    ! 요청 실패: {e}")
+                break
 
-        print(f"    - {new_count}개 수집 (누적 {len(all_rows)}개)")
+            products = parse_product_list(html, category_name)
 
-        time.sleep(REQUEST_DELAY_SEC)
+            if not products:
+                print(f"    - {page}페이지에 상품 없음. 이 요청 크롤링 종료.")
+                break
+
+            new_count = 0
+            for p in products:
+                if p["code"] in seen_codes:
+                    continue
+                seen_codes.add(p["code"])
+                p["crawl_date"] = crawl_date
+                p["maker"] = label
+                all_rows.append(p)
+                new_count += 1
+
+            print(f"    - {new_count}개 수집 (누적 {len(all_rows)}개)")
+
+            time.sleep(REQUEST_DELAY_SEC)
 
     save_to_csv(category_name, all_rows)
     print(f"  => {category_name} 완료: 총 {len(all_rows)}개 저장 ({category_name}.csv)")
